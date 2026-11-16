@@ -1,5 +1,5 @@
 // Lets the game open without a connection once it has loaded once.
-var CACHE = "traffic-surfer-v1";
+var CACHE = "traffic-surfer-v2";
 var THREE_URL = "https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js";
 var SHELL = ["./", "./index.html", "./manifest.webmanifest", "./icon-192.png", "./icon-512.png", "./logo.png"];
 
