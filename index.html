@@ -800,18 +800,20 @@
   }
 
   /* ================= coins ================= */
-  var coinGeo = new T.CylinderGeometry(0.55, 0.55, 0.12, 20);
-  var coinMat = new T.MeshStandardMaterial({ color: 0xffc926, metalness: 1.0, roughness: 0.18, emissive: 0xffa800, emissiveIntensity: 0.35, envMapIntensity: 1.3 });
-  var coinRimGeo = new T.CylinderGeometry(0.4, 0.4, 0.14, 20);
-  var coinRimMat = new T.MeshStandardMaterial({ color: 0xffe27a, metalness: 0.9, roughness: 0.25, emissive: 0xffc33a, emissiveIntensity: 0.3, envMapIntensity: 1.3 });
+  var coinGeo = new T.CylinderGeometry(0.7, 0.7, 0.14, 24);
+  var coinMat = new T.MeshStandardMaterial({ color: 0xffd23a, metalness: 1.0, roughness: 0.12, emissive: 0xffb000, emissiveIntensity: 0.9, envMapIntensity: 1.8 });
+  var coinRimGeo = new T.CylinderGeometry(0.5, 0.5, 0.17, 24);
+  var coinRimMat = new T.MeshStandardMaterial({ color: 0xfff0a0, metalness: 0.9, roughness: 0.2, emissive: 0xffd04a, emissiveIntensity: 0.8, envMapIntensity: 1.8 });
   shinyMats.push(coinMat, coinRimMat);
   var coinPool = [];
-  for (var ci = 0; ci < 60; ci++) {
-    var cg = new T.Group();
-    var disk = new T.Mesh(coinGeo, coinMat); disk.rotation.x = Math.PI / 2; cg.add(disk);
-    var inn = new T.Mesh(coinRimGeo, coinRimMat); inn.rotation.x = Math.PI / 2; cg.add(inn);
+  for (var ci = 0; ci < 70; ci++) {
+    var cg = new T.Group(), spin = new T.Group(); cg.add(spin);
+    var disk = new T.Mesh(coinGeo, coinMat); disk.rotation.x = Math.PI / 2; spin.add(disk);
+    var inn = new T.Mesh(coinRimGeo, coinRimMat); inn.rotation.x = Math.PI / 2; spin.add(inn);
+    var glowM = new T.MeshBasicMaterial({ map: radialTex("255,225,100"), transparent: true, opacity: 0.7, blending: T.AdditiveBlending, depthWrite: false });
+    var gp = new T.Mesh(new T.PlaneGeometry(3.2, 3.2), glowM); gp.rotation.x = -Math.PI / 2; gp.position.y = -0.7; cg.add(gp);
     cg.visible = false; scene.add(cg);
-    coinPool.push({ g: cg, active: false, phase: Math.random() * 6 });
+    coinPool.push({ g: cg, spin: spin, glow: glowM, active: false, phase: Math.random() * 6 });
   }
 
   /* ================= effects ================= */
@@ -877,16 +879,59 @@
     s.connect(f); f.connect(g); g.connect(audio.master); s.start(now); s.stop(now + dur + 0.02);
   }
   var sfx = {
-    coin: function () { tone(880, 1400, 0.12, "sine", 0.16); },
+    coin: function () {
+      if (!audio.ctx) return;
+      var c = audio.ctx, now = c.currentTime;
+      [["square", 0.11], ["triangle", 0.16]].forEach(function (cfg) {
+        var o = c.createOscillator(), g = c.createGain();
+        o.type = cfg[0];
+        o.frequency.setValueAtTime(988, now); o.frequency.setValueAtTime(1319, now + 0.075);
+        g.gain.setValueAtTime(0.0001, now); g.gain.linearRampToValueAtTime(cfg[1], now + 0.006);
+        g.gain.setValueAtTime(cfg[1], now + 0.075); g.gain.exponentialRampToValueAtTime(0.0008, now + 0.46);
+        o.connect(g); g.connect(audio.master); o.start(now); o.stop(now + 0.5);
+      });
+      tone(2637, 2637, 0.2, "sine", 0.05);
+    },
     near: function () { noiseBurst(0.35, 500, 2200, 0.22, "bandpass"); },
     crash: function () {
-      noiseBurst(1.0, 3200, 60, 0.95, "lowpass");
-      noiseBurst(0.5, 7000, 1500, 0.5, "highpass");
-      tone(95, 26, 0.95, "sine", 0.95);
-      tone(240, 55, 0.4, "sawtooth", 0.4);
-      setTimeout(function () { tone(1500, 480, 0.25, "square", 0.1); noiseBurst(0.6, 1800, 90, 0.5, "lowpass"); }, 150);
-      setTimeout(function () { tone(70, 24, 0.6, "sine", 0.55); noiseBurst(0.4, 900, 80, 0.4, "lowpass"); }, 380);
+      if (!audio.ctx) return;
+      var c = audio.ctx, now = c.currentTime;
+      // crunchy distorted noise body
+      var ws = c.createWaveShaper(), curve = new Float32Array(256);
+      for (var i = 0; i < 256; i++) { var x = i / 128 - 1; curve[i] = Math.tanh(x * 4); }
+      ws.curve = curve;
+      var src = c.createBufferSource(), lp = c.createBiquadFilter(), g = c.createGain();
+      src.buffer = audio.noise; src.loop = true; lp.type = "lowpass";
+      lp.frequency.setValueAtTime(2400, now); lp.frequency.exponentialRampToValueAtTime(110, now + 1.5);
+      g.gain.setValueAtTime(0.0001, now); g.gain.linearRampToValueAtTime(0.85, now + 0.03);
+      g.gain.exponentialRampToValueAtTime(0.35, now + 0.35); g.gain.exponentialRampToValueAtTime(0.001, now + 1.6);
+      src.connect(lp); lp.connect(ws); ws.connect(g); g.connect(audio.master); src.start(now); src.stop(now + 1.7);
+      // deep body thump
+      var o = c.createOscillator(), og = c.createGain();
+      o.type = "sine"; o.frequency.setValueAtTime(110, now); o.frequency.exponentialRampToValueAtTime(34, now + 0.7);
+      og.gain.setValueAtTime(0.0001, now); og.gain.linearRampToValueAtTime(1.0, now + 0.02); og.gain.exponentialRampToValueAtTime(0.001, now + 0.9);
+      o.connect(og); og.connect(audio.master); o.start(now); o.stop(now + 1);
+      // metal clangs with inharmonic partials
+      [[0, 1], [0.12, 0.7], [0.3, 0.5]].forEach(function (cl) {
+        [310, 523, 811, 1290].forEach(function (f, k) {
+          var oo = c.createOscillator(), gg = c.createGain(), t = now + cl[0];
+          oo.type = k % 2 ? "triangle" : "sine"; oo.frequency.value = f * (1 + (cl[0] * 0.3));
+          gg.gain.setValueAtTime(0.0001, t); gg.gain.linearRampToValueAtTime(0.09 * cl[1] / (k + 1), t + 0.004);
+          gg.gain.exponentialRampToValueAtTime(0.0005, t + 0.5);
+          oo.connect(gg); gg.connect(audio.master); oo.start(t); oo.stop(t + 0.55);
+        });
+      });
+      // tumbling scrape and debris
+      [0.18, 0.32, 0.5, 0.72, 0.95].forEach(function (d, k) {
+        var sr = c.createBufferSource(), bp = c.createBiquadFilter(), gg = c.createGain(), t = now + d;
+        sr.buffer = audio.noise; bp.type = "bandpass"; bp.frequency.value = 700 + k * 450; bp.Q.value = 1.2;
+        gg.gain.setValueAtTime(0.0001, t); gg.gain.linearRampToValueAtTime(0.3 - k * 0.04, t + 0.01); gg.gain.exponentialRampToValueAtTime(0.001, t + 0.22);
+        sr.connect(bp); bp.connect(gg); gg.connect(audio.master); sr.start(t, Math.random() * 0.5); sr.stop(t + 0.25);
+      });
+      // glass tinkle
+      for (var k = 0; k < 9; k++) tone(2400 + Math.random() * 3200, 1800, 0.08, "triangle", 0.035);
     },
+    thud: function () { tone(90, 36, 0.25, "sine", 0.5); noiseBurst(0.18, 900, 120, 0.3, "lowpass"); },
     click: function () { tone(520, 640, 0.06, "triangle", 0.1); }
   };
   function vibrate(p) { try { if (navigator.vibrate) navigator.vibrate(p); } catch (e) {} }
@@ -979,21 +1024,21 @@
     if (!v) return false;
     v.bodyMat.color.setHex(pick(VTYPES[v.key].colors));
     if (v.jacketMat) v.jacketMat.color.setHex(pick([0x20243a, 0xe8eefc, 0x3a2030]));
-    v.root.position.set(LANES[li], 0, z);
+    v.root.position.set(LANES[li], 0, z); v.root.rotation.y = 0; v.kickX = 0; v.kickR = 0;
     v.root.visible = true; v.active = true; v.nm = false;
     return true;
   }
 
   function spawnCoinRow(z) {
-    var lane = Math.floor(Math.random() * LANES.length), dir = Math.random() < 0.5 ? -1 : 1, n = 5;
+    var lane = Math.floor(Math.random() * LANES.length), dir = Math.random() < 0.5 ? -1 : 1, n = 9;
     for (var i = 0; i < n; i++) {
-      var li = clamp(lane + dir * Math.floor(i / 2), 0, LANES.length - 1);
-      var cz = z - i * 6.5, cx = LANES[li];
+      var li = clamp(lane + dir * Math.floor(i / 4), 0, LANES.length - 1);
+      var cz = z - i * 3.4, cx = LANES[li];
       if (carNear(cx, cz, 3)) continue;
       var c = null;
       for (var k = 0; k < coinPool.length; k++) if (!coinPool[k].active) { c = coinPool[k]; break; }
       if (!c) return;
-      c.active = true; c.g.visible = true; c.g.position.set(cx, 0.8, cz);
+      c.active = true; c.g.visible = true; c.g.position.set(cx, 1.5, cz);
     }
   }
 
@@ -1076,11 +1121,22 @@
     player.group.position.set(0, 0, 0); player.group.rotation.set(0, 0, 0); player.inner.rotation.set(0, 0, 0);
     speed = 38; shake = 0; targetX = 0;
   }
-  function crash() {
+  var cr = { vx: 0, vy: 0, vz: 0, ry: 0, rz: 0, rx: 0, y: 0 };
+  var hitCar = null;
+  function crash(car, edgeSide) {
     if (state !== "playing") return;
     state = "crashing"; crashT = 0; shake = 1.1; nitroOn = false;
     sfx.crash(); vibrate([90, 40, 160, 40, 220]);
     var px = player.group.position.x;
+    var dir = edgeSide ? -edgeSide : (car ? (px >= car.root.position.x ? 1 : -1) : (Math.random() < 0.5 ? -1 : 1));
+    if (!edgeSide && car && Math.abs(px - car.root.position.x) < 0.4) dir = Math.random() < 0.5 ? -1 : 1;
+    var sp = Math.max(speed, 30);
+    if (edgeSide) { dir = -edgeSide; cr.vx = dir * rand(3, 5); cr.vz = -rand(4, 8); cr.vy = rand(5, 8); }
+    else { cr.vx = dir * rand(5, 9); cr.vz = -rand(sp * 0.25, sp * 0.45); cr.vy = rand(6, 10); }
+    cr.ry = dir * rand(-9, 9) + dir * 4; cr.rz = -dir * rand(8, 13); cr.rx = rand(-6, 6); cr.y = 0;
+    hitCar = car || null;
+    if (car) { car.kickX = -dir * rand(2, 4); car.kickR = -dir * rand(1.5, 3); }
+    shake = 1.3;
     for (var i = 0; i < 42; i++) emitFx(px + rand(-0.3, 0.3), 0.6, rand(-0.5, 0.5), rand(-9, 9), rand(2, 8), rand(-8, 8), rand(0.5, 0.9), 14, sparkMat);
     var fs = Math.floor(score), isBest = fs > save.best;
     if (isBest) save.best = fs;
@@ -1295,7 +1351,7 @@
         if (tiltSeen) {
           tiltS += (tiltRaw - tiltNeutral - tiltS) * Math.min(1, dt * 14);
           var tv = Math.abs(tiltS) < 1.5 ? 0 : tiltS - (tiltS > 0 ? 1.5 : -1.5);
-          targetX = clamp(tv / 15, -1, 1) * 3.85;
+          targetX = clamp(tv / 15, -1.5, 1.5) * 3.85;
         }
       }
       var px0 = player.group.position.x;
@@ -1305,6 +1361,7 @@
       leanV = clamp(leanV, -0.5, 0.5);
       player.inner.rotation.z = -leanV;
       player.group.rotation.y = -leanV * 0.3;
+      if (Math.abs(px) > 4.85) crash(null, px > 0 ? 1 : -1);
 
       // nitro: hold the screen (or Space). It drains and refills, and needs a little charge to restart.
       var wantNitro = holding() || keyNitro;
@@ -1320,7 +1377,7 @@
         if (spawnCar(SPAWN_Z - rand(0, 8))) carAcc -= gap; else break;
       }
       coinAcc += speed * dt;
-      if (coinAcc > 55) { coinAcc = 0; spawnCoinRow(SPAWN_Z - 10); }
+      if (coinAcc > 60) { coinAcc = 0; spawnCoinRow(SPAWN_Z - 10); }
 
       if (comboTimer > 0) { comboTimer -= dt; if (comboTimer <= 0) { combo = 0; setMult(1); } }
       score += speed * dt * 0.5 * mult;
@@ -1329,9 +1386,21 @@
     if (crashing) {
       crashT += dt;
       speed -= speed * Math.min(1, dt * 2.6);
-      player.inner.rotation.z += dt * 6;
-      player.group.position.y = Math.max(0, Math.sin(crashT * 5) * 0.5 * (1 - crashT));
-      if (crashT > 1.25) { state = "over"; setHud(false); showScreen("over"); engineSet(0, false, false); }
+      var gp = player.group, onGround = gp.position.y <= 0.001;
+      cr.vy -= 24 * dt;
+      gp.position.y += cr.vy * dt;
+      if (gp.position.y < 0) {
+        gp.position.y = 0;
+        if (cr.vy < -3) { cr.vy = -cr.vy * 0.38; cr.vx *= 0.8; cr.vz *= 0.8; cr.ry *= 0.85; cr.rz *= 0.8; shake = Math.max(shake, 0.5); sfx.thud(); } else cr.vy = 0;
+      }
+      var fr = gp.position.y <= 0.02 ? Math.min(1, dt * 2.4) : 0;
+      cr.vx -= cr.vx * fr; cr.vz -= cr.vz * fr; cr.ry -= cr.ry * Math.min(1, dt * (fr ? 2.4 : 0.3)); cr.rz -= cr.rz * Math.min(1, dt * (fr ? 3 : 0.3)); cr.rx -= cr.rx * Math.min(1, dt * 2);
+      gp.position.x += cr.vx * dt; gp.position.z += cr.vz * dt;
+      var hl = ROAD_W / 2 + 0.3;
+      if (Math.abs(gp.position.x) > hl) { gp.position.x = Math.sign(gp.position.x) * hl; cr.vx *= -0.35; }
+      gp.rotation.y += cr.ry * dt; player.inner.rotation.z += cr.rz * dt; player.inner.rotation.x += cr.rx * dt;
+      if (hitCar) { hitCar.root.position.x += (hitCar.kickX || 0) * dt; hitCar.root.rotation.y += (hitCar.kickR || 0) * dt; hitCar.kickX *= 1 - Math.min(1, dt * 2); hitCar.kickR *= 1 - Math.min(1, dt * 2); }
+      if (crashT > 1.7) { state = "over"; setHud(false); showScreen("over"); engineSet(0, false, false); }
     }
 
     if (playing || crashing) {
@@ -1352,7 +1421,7 @@
         var dx = Math.abs(v.root.position.x - player.group.position.x);
         var dz = Math.abs(vz);
         var hw = v.w / 2 + PLAYER_HW, hl = v.l / 2 + PLAYER_HL;
-        if (dx < hw - 0.05 && dz < hl - 0.3) { crash(); break; }
+        if (dx < hw - 0.05 && dz < hl - 0.3) { crash(v); break; }
         if (!v.nm && dz < hl + 0.6) {
           var gapx = dx - hw;
           if (gapx > -0.06 && gapx < 0.95 && dz < v.l / 2 + 0.3) {
@@ -1372,12 +1441,13 @@
         var co = coinPool[c];
         if (!co.active) continue;
         co.g.position.z += speed * dt;
-        co.g.rotation.y += 3.6 * dt;
-        co.g.position.y = 0.8 + Math.sin(clockT * 5 + co.phase) * 0.14;
-        if (state === "playing" && Math.abs(co.g.position.x - player.group.position.x) < 1.15 && Math.abs(co.g.position.z) < 1.3) {
+        co.spin.rotation.y += 4.2 * dt; co.glow.opacity = 0.45 + 0.4 * Math.sin(clockT * 7 + co.phase);
+        co.g.position.y = 1.5 + Math.sin(clockT * 5 + co.phase) * 0.15;
+        if (state === "playing" && Math.abs(co.g.position.x - player.group.position.x) < 1.3 && Math.abs(co.g.position.z) < 1.6) {
           co.active = false; co.g.visible = false;
           runCoins++; save.coins++; score += 50 * mult; boost = Math.min(100, boost + 9);
           el.coins.textContent = save.coins;
+          for (var sp = 0; sp < 7; sp++) emitFx(co.g.position.x, 1.4, co.g.position.z, rand(-3, 3), rand(2, 5), rand(-3, 3), rand(0.25, 0.45), 9, sparkMat);
           sfx.coin();
           continue;
         }
